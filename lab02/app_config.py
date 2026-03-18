@@ -48,9 +48,6 @@ RESPONSE_ERROR = "ERROR"
 RESPONSE_RESUME = "RESUME"
 RESPONSE_FILESIZE = "FILESIZE"
 
-# Максимальный идентификатор запроса для пользовательских UDP сессий
-REQUEST_ID_MAX = 0xFFFF
-
 # Настройки отображения
 SHOW_PROGRESS_BAR = True
 PROGRESS_UPDATE_INTERVAL = 0.1

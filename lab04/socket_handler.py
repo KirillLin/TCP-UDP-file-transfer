@@ -63,6 +63,7 @@ def recv_exact(sock, num_bytes):
 def recv_until(sock, delimiter='\n'):
     """
     Получение ТЕКСТОВЫХ данных до разделителя
+    Использовать ТОЛЬКО для команд!
     """
     if isinstance(delimiter, str):
         delimiter = delimiter.encode()
@@ -88,6 +89,7 @@ def recv_until(sock, delimiter='\n'):
 def recv_exact(sock, num_bytes):
     """
     Получение точного количества БАЙТ (для файлов)
+    НИКАКОГО декодирования!
     """
     if num_bytes <= 0:
         return b''

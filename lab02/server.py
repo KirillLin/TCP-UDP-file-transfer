@@ -234,52 +234,34 @@ class UDPServerHandler:
         self.server = server
         self.clients = {}  # addr -> session_data
         self.client_sessions = {}
-        # текущие активные запросы (request_id -> RequestSession)
-        self.requests = {}
-        self._lock = threading.Lock()
-
-    def dispatch_packet(self, data, client_addr):
-        """Принимает UDP-пакет, определяет request_id и кладёт его в очередь.
-
-        Если запрос появляется впервые, создаётся новая RequestSession и
-        соответствующий поток.
-        """
-        parsed = parse_packet(data)
-        if not parsed:
-            return
-        request_id = parsed[0]
-        with self._lock:
-            if request_id not in self.requests:
-                self.requests[request_id] = RequestSession(request_id, client_addr, self)
-            session = self.requests[request_id]
-        session.queue.put(data)
 
     def handle_packet(self, data, client_addr):
-        """Обработка UDP пакета (в рамках одного запроса)."""
+        """Обработка UDP пакета"""
         result = parse_packet(data)
         if not result:
             return
-        request_id, packet_id, total_packets, flags, payload = result
+
+        packet_id, total_packets, flags, payload = result
         print(
-            f"UDP пакет от {client_addr}: req={request_id} id={packet_id}, flags={flags}, размер={len(payload)}"
+            f"UDP пакет от {client_addr}: id={packet_id}, flags={flags}, размер={len(payload)}"
         )
 
-        # Отправляем ACK за все пакеты кроме стартовых
+        # Отправляем ACK
         if not (flags & FLAG_START):
-            ack = create_ack_packet(request_id, packet_id)
+            ack = create_ack_packet(packet_id)
             self.server.udp_socket.sendto(ack, client_addr)
 
         if flags & FLAG_START:
-            self._handle_start(client_addr, payload, request_id)
+            self._handle_start(client_addr, payload)
             return
 
         if flags & FLAG_DATA:
-            self._handle_data(client_addr, request_id, packet_id, total_packets, flags, payload)
+            self._handle_data(client_addr, packet_id, total_packets, flags, payload)
 
         elif flags & FLAG_END:
-            self._handle_end(client_addr, payload, request_id)
+            self._handle_end(client_addr, payload)
 
-    def _handle_start(self, client_addr, payload, request_id):
+    def _handle_start(self, client_addr, payload):
         """Обработка начала сессии"""
         try:
             data = payload.decode("utf-8")
@@ -297,13 +279,13 @@ class UDPServerHandler:
                 print(f"UDP клиент {client_id} подключился с адреса {client_addr}")
 
                 # Отправляем подтверждение
-                packet = create_packet(request_id, 0, 1, FLAG_ACK | FLAG_END, b"OK")
+                packet = create_packet(0, 1, FLAG_ACK | FLAG_END, b"OK")
                 self.server.udp_socket.sendto(packet, client_addr)
 
         except Exception as e:
             print(f"Ошибка при начале UDP сессии: {e}")
 
-    def _handle_end(self, client_addr, payload, request_id):
+    def _handle_end(self, client_addr, payload):
         """Обработка завершения сессии"""
         try:
             data = payload.decode("utf-8")
@@ -316,12 +298,12 @@ class UDPServerHandler:
                     print(f"UDP клиент {client_id} отключился")
             else:
                 # Это может быть команда
-                self._handle_command(client_addr, self.clients.get(client_addr), data, request_id)
+                self._handle_command(client_addr, self.clients.get(client_addr), data)
 
         except Exception as e:
             print(f"Ошибка при завершении UDP сессии: {e}")
 
-    def _handle_data(self, client_addr, request_id, packet_id, total_packets, flags, payload):
+    def _handle_data(self, client_addr, packet_id, total_packets, flags, payload):
         """Обработка данных"""
         if client_addr not in self.clients:
             print(f"UDP данные от неизвестного клиента {client_addr}")
@@ -339,35 +321,26 @@ class UDPServerHandler:
         # Определяем тип данных по packet_id
         if packet_id == 0:  # Команда
             self._handle_command(
-                client_addr,
-                client_info,
-                payload.decode("utf-8", errors="ignore"),
-                request_id,
+                client_addr, client_info, payload.decode("utf-8", errors="ignore")
             )
         else:  # Данные файла
             self._handle_file_data(
-                client_addr,
-                client_info,
-                packet_id,
-                total_packets,
-                flags,
-                payload,
-                request_id,
+                client_addr, client_info, packet_id, total_packets, flags, payload
             )
 
-    def _handle_command(self, client_addr, client_info, command, request_id):
+    def _handle_command(self, client_addr, client_info, command):
         """Обработка команд"""
         try:
             command = command.strip()
-            print(f"UDP команда от {client_info.get('client_id')} (rid={request_id}): '{command}'")
+            print(f"UDP команда от {client_info.get('client_id')}: '{command}'")
 
             if command == "TIME":
                 response = f"Текущее время: {time.strftime('%H:%M:%S')}"
-                self._send_response(client_addr, response, request_id)
+                self._send_response(client_addr, response)
 
             elif command.startswith("ECHO"):
                 response = command[5:] if len(command) > 5 else ""
-                self._send_response(client_addr, response, request_id)
+                self._send_response(client_addr, response)
 
             elif command.startswith("UPLOAD "):
                 parts = command.split()
@@ -381,23 +354,23 @@ class UDPServerHandler:
                         "packets": {},
                         "start_time": time.time(),
                     }
-                    self._send_response(client_addr, "READY", request_id)
+                    self._send_response(client_addr, "READY")
                 else:
-                    self._send_response(client_addr, "ERROR: Invalid UPLOAD command", request_id)
+                    self._send_response(client_addr, "ERROR: Invalid UPLOAD command")
 
             elif command.startswith("DOWNLOAD "):
                 filename = command[9:].strip()
-                self._handle_download(client_addr, filename, request_id)
+                self._handle_download(client_addr, filename)
 
             else:
-                self._send_response(client_addr, f"Unknown command: {command}", request_id)
+                self._send_response(client_addr, f"Unknown command: {command}")
 
         except Exception as e:
             print(f"Ошибка обработки UDP команды: {e}")
-            self._send_response(client_addr, f"ERROR: {e}", request_id)
+            self._send_response(client_addr, f"ERROR: {e}")
 
     def _handle_file_data(
-        self, client_addr, client_info, packet_id, total_packets, flags, payload, request_id
+        self, client_addr, client_info, packet_id, total_packets, flags, payload
     ):
         """Обработка данных файла"""
         session = client_info.get("file_session")
@@ -412,9 +385,9 @@ class UDPServerHandler:
         print(f"\rUDP прием {session['filename']}: {percent:.1f}%", end="")
 
         if flags & FLAG_END:
-            self._finalize_upload(client_addr, client_info, request_id)
+            self._finalize_upload(client_addr, client_info)
 
-    def _finalize_upload(self, client_addr, client_info, request_id=0):
+    def _finalize_upload(self, client_addr, client_info):
         """Завершение UDP загрузки"""
         session = client_info.get("file_session")
         if not session:
@@ -440,10 +413,10 @@ class UDPServerHandler:
         print(f"  Размер: {session['filesize']} байт")
         print(f"  Скорость: {bitrate / 1000:.2f} Кбит/с")
 
-        self._send_response(client_addr, f"UPLOAD_OK {os.path.basename(filepath)}", request_id)
+        self._send_response(client_addr, f"UPLOAD_OK {os.path.basename(filepath)}")
         client_info["file_session"] = {}
 
-    def _handle_download(self, client_addr, filename, request_id):
+    def _handle_download(self, client_addr, filename):
         """Обработка UDP скачивания"""
         # Очищаем filename
         filename = filename.strip()
@@ -474,12 +447,12 @@ class UDPServerHandler:
             except Exception as e:
                 print(f"Ошибка чтения папки: {e}")
 
-            self._send_response(client_addr, "ERROR: Файл не найден", request_id)
+            self._send_response(client_addr, "ERROR: Файл не найден")
             return
 
         filesize = os.path.getsize(filepath)
         print(f"UDP размер файла: {filesize} байт")
-        self._send_response(client_addr, f"FILESIZE {filesize}", request_id)
+        self._send_response(client_addr, f"FILESIZE {filesize}")
 
         # Небольшая пауза для обработки
         time.sleep(0.2)
@@ -503,7 +476,7 @@ class UDPServerHandler:
                     if sent >= filesize:
                         flags |= FLAG_END
 
-                    packet = create_packet(request_id, packet_seq, total_packets, flags, chunk)
+                    packet = create_packet(packet_seq, total_packets, flags, chunk)
                     self.server.udp_socket.sendto(packet, client_addr)
 
                     packet_seq += 1
@@ -518,15 +491,11 @@ class UDPServerHandler:
         except Exception as e:
             print(f"Ошибка при UDP отправке: {e}")
 
-    def _send_response(self, client_addr, response_text, request_id=0):
-        """Отправка UDP ответа.
-
-        ``request_id`` используется для того, чтобы клиент мог ассоциировать
-        ответ с конкретным запросом.
-        """
+    def _send_response(self, client_addr, response_text):
+        """Отправка UDP ответа"""
         try:
             data = response_text.encode("utf-8")
-            print(f"Отправка UDP ответа {client_addr} (rid={request_id}): {response_text}")
+            print(f"Отправка UDP ответа {client_addr}: {response_text}")
 
             # Разбиваем на пакеты если нужно
             max_chunk = 1400 - PACKET_HEADER_SIZE
@@ -541,7 +510,7 @@ class UDPServerHandler:
                 if i == total_packets - 1:
                     flags |= FLAG_END
 
-                packet = create_packet(request_id, i, total_packets, flags, chunk)
+                packet = create_packet(i, total_packets, flags, chunk)
                 self.server.udp_socket.sendto(packet, client_addr)
 
                 # Небольшая задержка
@@ -631,8 +600,7 @@ class Server:
 
     def _run_udp_server(self):
         """Запуск UDP сервера"""
-        # разрешаем переиспользование адреса для сервера
-        self.udp_socket = create_udp_socket(reuse=True)
+        self.udp_socket = create_udp_socket()
         self.udp_socket.bind((self.udp_host, self.udp_port))
         self.udp_socket.settimeout(1.0)
 
@@ -641,8 +609,12 @@ class Server:
         while self.running:
             try:
                 data, client_addr = self.udp_socket.recvfrom(65535)
-                # передаём пакет обработчику, он создаст/использует поток запроса
-                self.udp_handler.dispatch_packet(data, client_addr)
+                # Обрабатываем в отдельном потоке
+                thread = threading.Thread(
+                    target=self.udp_handler.handle_packet, args=(data, client_addr)
+                )
+                thread.daemon = True
+                thread.start()
             except socket.timeout:
                 continue
             except Exception as e:
