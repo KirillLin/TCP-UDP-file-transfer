@@ -222,6 +222,16 @@ class UDPClientHandler:
         self.stats = FileTransferStats()
         self.window_size = 64
         self.packet_timeout = 0.1
+        # для генерации request_id (не равного 0)
+        self.next_request_id = 1
+
+    def _get_request_id(self):
+        """Вернуть уникальный request_id в диапазоне [1, REQUEST_ID_MAX]."""
+        rid = self.next_request_id
+        self.next_request_id = (self.next_request_id + 1) & REQUEST_ID_MAX
+        if self.next_request_id == 0:
+            self.next_request_id = 1
+        return rid
 
     def connect(self, server_host, server_port, client_id):
         """Подключение к UDP серверу"""
@@ -233,8 +243,9 @@ class UDPClientHandler:
 
             print(f"UDP подключение к {server_host}:{server_port}...")
 
+            rid = self._get_request_id()
             packet = create_packet(
-                0, 1, FLAG_START | FLAG_END, f"CLIENT {client_id}".encode()
+                rid, 0, 1, FLAG_START | FLAG_END, f"CLIENT {client_id}".encode()
             )
             self.socket.sendto(packet, self.server_addr)
 
@@ -242,10 +253,12 @@ class UDPClientHandler:
                 try:
                     data, addr = self.socket.recvfrom(65535)
                     result = parse_packet(data)
-                    if result and result[2] & FLAG_ACK and result[3] == b"OK":
-                        self.connected = True
-                        print(f"✓ Подключено к UDP серверу {server_host}:{server_port}")
-                        return True
+                    if result:
+                        resp_rid, packet_id, total, flags, payload = result
+                        if resp_rid == rid and (flags & FLAG_ACK) and payload == b"OK":
+                            self.connected = True
+                            print(f"✓ Подключено к UDP серверу {server_host}:{server_port}")
+                            return True
                 except socket.timeout:
                     if attempt < 2:
                         self.socket.sendto(packet, self.server_addr)
@@ -262,7 +275,8 @@ class UDPClientHandler:
         """Отключение от UDP сервера"""
         if self.connected:
             try:
-                packet = create_packet(0, 1, FLAG_END, b"CLOSE")
+                rid = self._get_request_id()
+                packet = create_packet(rid, 0, 1, FLAG_END, b"CLOSE")
                 self.socket.sendto(packet, self.server_addr)
             except:
                 pass
@@ -312,6 +326,7 @@ class UDPClientHandler:
     def _send_simple_command(self, command):
         """Отправка простой команды и получение ответа"""
         try:
+            rid = self._get_request_id()
             data = command.encode("utf-8")
             max_chunk = 1400 - PACKET_HEADER_SIZE
             total_packets = (len(data) + max_chunk - 1) // max_chunk
@@ -325,10 +340,10 @@ class UDPClientHandler:
                 if i == total_packets - 1:
                     flags |= FLAG_END
 
-                packet = create_packet(i, total_packets, flags, chunk)
+                packet = create_packet(rid, i, total_packets, flags, chunk)
                 self.socket.sendto(packet, self.server_addr)
 
-            response = self._wait_for_response(timeout=3)
+            response = self._wait_for_response(timeout=3, request_id=rid)
             if response:
                 print(f"Ответ: {response}")
             else:
@@ -349,16 +364,17 @@ class UDPClientHandler:
         print(f"\nUDP загрузка файла '{basename}' ({self._format_bytes(filesize)})...")
 
         try:
+            rid = self._get_request_id()
             cmd = f"UPLOAD {basename} {filesize}"
-            cmd_packet = create_packet(0, 1, FLAG_DATA | FLAG_END, cmd.encode())
+            cmd_packet = create_packet(rid, 0, 1, FLAG_DATA | FLAG_END, cmd.encode())
             self.socket.sendto(cmd_packet, self.server_addr)
 
-            response = self._wait_for_response(timeout=3)
+            response = self._wait_for_response(timeout=3, request_id=rid)
             if not response or not response.startswith("READY"):
                 print("✗ Сервер не готов к приему файла")
                 return
 
-            self._send_file_fast(filename, filesize)
+            self._send_file_fast(filename, filesize, rid)
 
         except Exception as e:
             print(f"\n✗ Ошибка при UDP загрузке: {e}")
@@ -374,11 +390,12 @@ class UDPClientHandler:
         print(f"\nUDP скачивание файла '{basename}'...")
 
         try:
+            rid = self._get_request_id()
             cmd = f"DOWNLOAD {basename}"
-            cmd_packet = create_packet(0, 1, FLAG_DATA | FLAG_END, cmd.encode())
+            cmd_packet = create_packet(rid, 0, 1, FLAG_DATA | FLAG_END, cmd.encode())
             self.socket.sendto(cmd_packet, self.server_addr)
 
-            response = self._wait_for_response(timeout=3)
+            response = self._wait_for_response(timeout=3, request_id=rid)
             if not response:
                 print("✗ Нет ответа от сервера")
                 return
@@ -390,13 +407,13 @@ class UDPClientHandler:
             filesize = int(response[9:])
             print(f"Размер файла: {filesize} байт ({filesize / 1024 / 1024:.2f} МБ)")
 
-            self._receive_file_fast(save_path, filesize)
+            self._receive_file_fast(save_path, filesize, rid)
 
         except Exception as e:
             print(f"\n✗ Ошибка при UDP скачивании: {e}")
 
-    def _send_file_fast(self, filename, filesize):
-        """Быстрая отправка файла"""
+    def _send_file_fast(self, filename, filesize, request_id):
+        """Быстрая отправка файла с указанным request_id"""
         self.stats.start()
 
         data_size = 1400 - PACKET_HEADER_SIZE
@@ -422,7 +439,7 @@ class UDPClientHandler:
                     if sent_bytes >= filesize:
                         flags |= FLAG_END
 
-                    packet = create_packet(next_seq, total_packets, flags, chunk)
+                    packet = create_packet(request_id, next_seq, total_packets, flags, chunk)
                     window[next_seq] = {
                         "packet": packet,
                         "time": time.time(),
@@ -437,12 +454,15 @@ class UDPClientHandler:
                     while True:
                         data, addr = self.socket.recvfrom(65535)
                         result = parse_packet(data)
-                        if result and result[2] & FLAG_ACK:
-                            ack_id = result[0]
-                            if ack_id in window:
-                                del window[ack_id]
-                                if ack_id >= base_seq:
-                                    base_seq = ack_id + 1
+                        if result:
+                            rid, ack_id, _, flags, _ = result
+                            if rid != request_id:
+                                continue
+                            if flags & FLAG_ACK:
+                                if ack_id in window:
+                                    del window[ack_id]
+                                    if ack_id >= base_seq:
+                                        base_seq = ack_id + 1
                 except socket.timeout:
                     pass
 
@@ -475,7 +495,7 @@ class UDPClientHandler:
         self.stats.stop()
         self._print_stats("UDP загрузка файла")
 
-    def _receive_file_fast(self, filepath, filesize):
+    def _receive_file_fast(self, filepath, filesize, request_id):
         """Быстрый прием файла"""
         self.stats.start()
 
@@ -505,7 +525,9 @@ class UDPClientHandler:
                         if not result:
                             continue
 
-                        packet_id, total, flags, payload = result
+                        rid, packet_id, total, flags, payload = result
+                        if rid != request_id:
+                            continue
 
                         if not (flags & FLAG_DATA):
                             continue
@@ -526,7 +548,7 @@ class UDPClientHandler:
                     current_time - last_ack > 0.005 or len(ack_batch) > 50
                 ):
                     for ack_id in ack_batch[:20]:  # Не больше 20 за раз
-                        ack = create_ack_packet(ack_id)
+                        ack = create_ack_packet(request_id, ack_id)
                         self.socket.sendto(ack, self.server_addr)
                     ack_batch = ack_batch[20:]
                     last_ack = current_time
@@ -577,8 +599,8 @@ class UDPClientHandler:
             ratio = self.stats.get_bitrate() / tcp_equiv
             print(f"✓ UDP быстрее TCP в {ratio:.2f} раз")
 
-    def _wait_for_response(self, timeout=3):
-        """Ожидание ответа от сервера"""
+    def _wait_for_response(self, timeout=3, request_id=0):
+        """Ожидание ответа от сервера, только для указанного request_id."""
         start_time = time.time()
         data = b""
         packets = {}
@@ -590,11 +612,14 @@ class UDPClientHandler:
                 if not result:
                     continue
 
-                packet_id, total, flags, payload = result
+                rid, packet_id, total, flags, payload = result
+                if request_id and rid != request_id:
+                    # чужой запрос, игнорируем
+                    continue
 
                 if flags & FLAG_DATA:
                     packets[packet_id] = payload
-                    ack = create_ack_packet(packet_id)
+                    ack = create_ack_packet(rid, packet_id)
                     self.socket.sendto(ack, self.server_addr)
 
                 if flags & FLAG_END:
