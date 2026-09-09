@@ -36,6 +36,18 @@ def decode_ignore(data):
         pass
     return None
 
+def encode_unignore(ip):
+    return f'UNIGNORE|{ip}'.encode(config.ENCODING)
+
+def decode_unignore(data):
+    try:
+        parts = data.decode(config.ENCODING).split('|')
+        if len(parts) == 2 and parts[0] == 'UNIGNORE':
+            return parts[1]
+    except Exception:
+        pass
+    return None
+
 def encode_leave(sender):
     return f'LEAVE|{sender}'.encode(config.ENCODING)
 

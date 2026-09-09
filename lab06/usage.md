@@ -80,7 +80,7 @@ ip <ip>
 mask <маска>
 broadcast <broadcast>
 mode <broadcast|multicast>
-commands: /list, /ignore <ip>, /leave, /help, /quit
+commands: /list, /ignore <ip>, /unignore <ip>, /leave, /help, /quit
 ```
 
 ## Сценарий "точка доступа с телефона"
@@ -138,6 +138,14 @@ sudo ufw allow 10001/udp
 
 ```
 /ignore 192.168.1.5
+```
+
+### `/unignore <ip>`
+
+Отменяет игнорирование указанного IP. Рассылает команду `UNIGNORE|<ip>` всем участникам, кроме самого заигнорированного ПК — его собственный `/unignore` не обрабатывается. Пример:
+
+```
+/unignore 192.168.1.5
 ```
 
 ### `/leave`

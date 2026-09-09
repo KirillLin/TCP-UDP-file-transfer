@@ -33,6 +33,10 @@ class Peers:
         with self._lock:
             return ip in self._ignored
 
+    def unignore(self, ip):
+        with self._lock:
+            self._ignored.discard(ip)
+
     def forget(self, ip):
         with self._lock:
             self._seen.pop(ip, None)

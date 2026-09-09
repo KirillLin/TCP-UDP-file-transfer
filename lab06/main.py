@@ -31,7 +31,7 @@ def show_interface(name, ip, mask, broadcast):
 
 def show_help():
     print()
-    print('commands: /list, /ignore <ip>, /leave, /help, /quit')
+    print('commands: /list, /ignore <ip>, /unignore <ip>, /leave, /help, /quit')
 
 def read_input(message_queue):
     while True:
@@ -75,6 +75,19 @@ def handle_chat(sock, line, own_ip, address, peer_state):
         print(f'\r\nignoring {target}', flush=True)
         sock.sendto(messages.encode_ignore(target), address)
         return
+    if line.startswith('/unignore '):
+        parts = line.split(maxsplit=1)
+        if len(parts) < 2:
+            print(f'\r\nusage: /unignore <ip>', flush=True)
+            return
+        target = parts[1]
+        if target == own_ip:
+            print(f'\r\ncannot unignore yourself', flush=True)
+            return
+        peer_state.unignore(target)
+        print(f'\r\nunignoring {target}', flush=True)
+        sock.sendto(messages.encode_unignore(target), address)
+        return
     if line == '/leave':
         sock.sendto(messages.encode_leave(own_ip), address)
         return 'leave'
@@ -88,6 +101,13 @@ def process_packet(data, addr, own_ip, peer_state):
     if target:
         peer_state.ignore(target)
         print(f'\r\n{ip} ignores {target}', flush=True)
+        return
+    target = messages.decode_unignore(data)
+    if target:
+        if target == own_ip or target == ip:
+            return
+        peer_state.unignore(target)
+        print(f'\r\n{ip} unignores {target}', flush=True)
         return
     leaver = messages.decode_leave(data)
     if leaver:
