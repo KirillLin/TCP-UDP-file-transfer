@@ -114,22 +114,22 @@ ___
    - пароль: *1234*
 
 **Пример узлов:**
-   - 172.20.10.2
-   - 172.20.10.3
-   - 172.20.10.4
+   - 10.188.64.252
+   - 10.188.64.156
+   - 10.188.64.162
 
 ### 2. Подготовка окружения
 ___
-#### Компьютер 1 (172.20.10.2) — главный узел
+#### Компьютер 1 (10.188.64.252) — главный узел
 ___
 Заполните файл *hosts.txt*.
 
 ```plain-text
 # hosts.txt
 
-172.20.10.2 slots=4    # число слотов == число ядер вашего компьютера
-172.20.10.3 slots=4
-172.20.10.4 slots=2
+10.188.64.252 slots=6 // число слотов
+10.188.64.156 slots=2
+10.188.64.162 slots=4
 ```
 
 Выполните следующие команды.
@@ -139,8 +139,8 @@ ___
 ```bash
 ssh-keygen          # нажмите Enter и введите "yes"
 
-ssh-copy-id user-lab03@172.20.10.3
-ssh-copy-id user-lab03@172.20.10.4
+ssh-copy-id user-lab03@10.188.64.156
+ssh-copy-id user-lab03@10.188.64.162
 
 mpiexec --hostfile hosts.txt python3 var1.py
 mpiexec --hostfile hosts.txt python3 var2.py
@@ -152,8 +152,8 @@ mpiexec --hostfile hosts.txt python3 var2.py
 ssh-keygen          # нажмите Enter
 
 # Копирование ключа (ssh-copy-id отсутствует в Windows — используем type)
-type $env:USERPROFILE\.ssh\id_rsa.pub | ssh user-lab03@172.20.10.3 "cat >> .ssh/authorized_keys"
-type $env:USERPROFILE\.ssh\id_rsa.pub | ssh user-lab03@172.20.10.4 "cat >> .ssh/authorized_keys"
+type $env:USERPROFILE\.ssh\id_rsa.pub | ssh user-lab03@10.188.64.156 "cat >> .ssh/authorized_keys"
+type $env:USERPROFILE\.ssh\id_rsa.pub | ssh user-lab03@10.188.64.162 "cat >> .ssh/authorized_keys"
 
 mpiexec -hostfile hosts.txt python var1.py
 mpiexec -hostfile hosts.txt python var2.py
@@ -164,11 +164,11 @@ mpiexec -hostfile hosts.txt python var2.py
 Проверить соединение можно командами:
 
 ```bash
-ssh user-lab03@172.20.10.3
-ssh user-lab03@172.20.10.4
+ssh user-lab03@10.188.64.156
+ssh user-lab03@10.188.64.162
 ```
 
-#### Компьютер 2 (172.20.10.3) — рабочий узел
+#### Компьютер 2 (10.188.64.162) — рабочий узел
 ___
 
 Исходные файлы должны находиться в корневой директории
@@ -178,23 +178,23 @@ ___
 
 ```bash
 ssh-keygen
-ssh-copy-id user-lab03@172.20.10.2
+ssh-copy-id user-lab03@10.188.64.162
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
 ssh-keygen
-type $env:USERPROFILE\.ssh\id_rsa.pub | ssh user-lab03@172.20.10.2 "cat >> .ssh/authorized_keys"
+type $env:USERPROFILE\.ssh\id_rsa.pub | ssh user-lab03@10.188.64.162 "cat >> .ssh/authorized_keys"
 ```
 
 Проверка соединения:
 
 ```bash
-ssh user-lab03@172.20.10.2
+ssh user-lab03@10.188.64.162
 ```
 
-#### Компьютер 3 (172.20.10.4) — рабочий узел
+#### Компьютер 3 (10.188.64.156) — рабочий узел
 ___
 
 Исходные файлы должны находиться в корневой директории
@@ -204,19 +204,19 @@ ___
 
 ```bash
 ssh-keygen
-ssh-copy-id user-lab03@172.20.10.2
+ssh-copy-id user-lab03@10.188.64.156
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
 ssh-keygen
-type $env:USERPROFILE\.ssh\id_rsa.pub | ssh user-lab03@172.20.10.2 "cat >> .ssh/authorized_keys"
+type $env:USERPROFILE\.ssh\id_rsa.pub | ssh user-lab03@10.188.64.156 "cat >> .ssh/authorized_keys"
 ```
 
 Проверка соединения:
 
 ```bash
-ssh user-lab03@172.20.10.2
+ssh user-lab03@10.188.64.156
 ```
 ```

@@ -2,3 +2,5 @@
 *.txt
 *.log
 *.pdf
+venv/
+lab07-test/

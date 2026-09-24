@@ -1,4 +1,3 @@
-"""Умножение матриц: неблокирующая широковещательная рассылка и Isend/Irecv."""
 import time
 from mpi4py import MPI
 import numpy as np

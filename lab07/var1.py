@@ -1,4 +1,3 @@
-"""Умножение матриц: блочная схема с широковещательной рассылкой и gather."""
 import time
 from mpi4py import MPI
 import numpy as np
